@@ -19,7 +19,7 @@ SV svlitlen(char *str, size_t len) {
   };
 }
 
-bool svcmp(SV a, const char *cstring) {
+bool sveq(SV a, const char *cstring) {
   for (size_t i = 0; i < a.len; i++) {
     char ac = a.str[i];
     char sc = cstring[i];

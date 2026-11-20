@@ -14,6 +14,9 @@
 #define FAT32_ATTR_DIRECTORY 0x10
 #define FAT32_ATTR_ARCHIVE 0x20
 
+#define DELETED_MARKER 0xE5
+#define END_MARKER 0x0
+
 struct fat32_bios_parameter_block {
   uint32_t : 3 * 8; // JUMP
   uint64_t oem_identifier;
@@ -109,16 +112,6 @@ typedef struct {
   size_t entry_idx;
 } fat32_file_t;
 
-#define FAT32_ATTR_READ_ONLY 0x1
-#define FAT32_ATTR_HIDDEN 0x2
-#define FAT32_ATTR_SYSTEM 0x4
-#define FAT32_ATTR_VOLUME_ID 0x8
-#define FAT32_ATTR_DIRECTORY 0x10
-#define FAT32_ATTR_ARCHIVE 0x20
-
-#define DELETED_MARKER 0xE5
-#define END_MARKER 0x0
-
 #define FIRST_SECTOR_IN_CLUSTER(c)                                             \
   (first_data_sector + sectors_per_cluster * ((c) - 2))
 //=====STATE=================
@@ -132,23 +125,6 @@ fat32_dentry_t root_dentry;
 
 //===========================
 
-void fat32_read_dir(size_t first_sector) {}
-
-#define INIT_DIR_ENTRY(var_name)                                               \
-  do {                                                                         \
-    for (size_t i = 0; i < sizeof(var_name->file_name); i++) {                 \
-      var_name->file_name[i] = 0;                                              \
-    }                                                                          \
-    var_name->size = 0;                                                        \
-    var_name->attributes = 0;                                                  \
-    var_name->creation_time = 0;                                               \
-    var_name->creation_date = 0;                                               \
-    var_name->last_accessed_date = 0;                                          \
-    var_name->last_modification_time = 0;                                      \
-    var_name->last_modification_date = 0;                                      \
-    var_name->first_cluster = 0;                                               \
-  } while (0);
-
 fat32_file_t fat32_root() {
   return (fat32_file_t){
       .first_sector = root_sector,
@@ -157,7 +133,6 @@ fat32_file_t fat32_root() {
 }
 
 int fat32_get_next_dir_entry(fat32_file_t *dir, fat32_dentry_t *fat32_de) {
-  INIT_DIR_ENTRY(fat32_de);
   union fat32_dir_entry fat32_dentries[cluster_size];
   int direntry_size = sizeof(union fat32_dir_entry);
 
@@ -173,9 +148,14 @@ int fat32_get_next_dir_entry(fat32_file_t *dir, fat32_dentry_t *fat32_de) {
   if (de.std.fname[0] == END_MARKER)
     return 0; // no more directory entries
 
+  bool has_long_name = false;
   for (;;) {
     de = fat32_dentries[dir->entry_idx++];
     if (de.std.attributes != 0xf) {
+      if (!has_long_name) {
+        memcpy(fat32_de->file_name, de.std.fname, 11);
+        fat32_de->file_name[11] = 0;
+      }
       fat32_de->size = de.std.file_size;
       fat32_de->attributes = de.std.attributes;
       fat32_de->creation_time = de.std.creation_time;
@@ -187,6 +167,7 @@ int fat32_get_next_dir_entry(fat32_file_t *dir, fat32_dentry_t *fat32_de) {
                                 (uint32_t)de.std.first_cluster_no_low;
       break;
     }
+    has_long_name = true;
     int8_t order = (de.lfn.order & 0xf) - 1;
     size_t filename_idx = 0;
     for (int j = 0; j < 10 / 2; j++) {
@@ -206,7 +187,8 @@ int fat32_get_next_dir_entry(fat32_file_t *dir, fat32_dentry_t *fat32_de) {
 }
 
 int readdir(fat32_dentry_t *dirent, size_t *cursor, vfs_dentry *out) {
-  fat32_dentry_t fat32_de;
+  fat32_dentry_t fat32_de = {0};
+
   fat32_file_t dir = {
       .first_sector = FIRST_SECTOR_IN_CLUSTER(dirent->first_cluster),
       .entry_idx = *cursor / sizeof(union fat32_dir_entry),
@@ -220,6 +202,10 @@ int readdir(fat32_dentry_t *dirent, size_t *cursor, vfs_dentry *out) {
   memcpy(out->name, fat32_de.file_name, sizeof(out->name));
   out->size = fat32_de.size;
   out->is_dir = fat32_de.attributes & FAT32_ATTR_DIRECTORY;
+  // todo: this leaks
+  fat32_dentry_t *fs_data = kmalloc(sizeof(fat32_dentry_t));
+  *fs_data = fat32_de;
+  out->fs_data = fs_data;
   return 1;
 }
 

@@ -12,12 +12,12 @@
 SV_array lines;
 
 static void run_cmd_ls() {
-  size_t fd = vfs_open_root();
-  vfs_dentry de;
-  while (vfs_readdir(fd, &de)) {
-    kprintf("%x ", de.size);
-    kprintf("%s", de.name);
-    if (de.is_dir)
+  size_t fd = vfs_open("/homework");
+  vfs_dentry *de;
+  while ((de = vfs_readdir(fd)) != 0) {
+    kprintf("%x ", de->size);
+    kprintf("%s", de->name);
+    if (de->is_dir)
       kprintf("/");
     kprintf("\n");
   };
@@ -76,9 +76,9 @@ void parse_cmd(SV cmd) {
   }
 
   SV cmd_name = words.elts[0];
-  if (svcmp(cmd_name, "ps")) {
+  if (sveq(cmd_name, "ps")) {
     run_cmd_ps();
-  } else if (svcmp(cmd_name, "ls")) {
+  } else if (sveq(cmd_name, "ls")) {
     run_cmd_ls();
   } else {
     kprintf("unrecognized command\n");

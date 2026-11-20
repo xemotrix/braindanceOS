@@ -36,6 +36,33 @@ char *strncpy(char *dest, const char *src, size_t n) {
   return dest;
 }
 
+int strcmp(const char *s1, const char *s2) {
+  for (;;) {
+    char c1 = *s1++;
+    char c2 = *s2++;
+    if (c1 == 0 && c2 == 0)
+      return 0;
+    if (c1 < c2)
+      return -1;
+    if (c1 > c2)
+      return 1;
+  }
+}
+
+int strncmp(const char *s1, const char *s2, size_t n) {
+  for (size_t i = 0; i < n; i++) {
+    char c1 = *s1++;
+    char c2 = *s2++;
+    if (c1 == 0 && c2 == 0)
+      return 0;
+    if (c1 < c2)
+      return -1;
+    if (c1 > c2)
+      return 1;
+  }
+  return 0;
+}
+
 void *memset(void *s, int c, size_t n) {
   for (size_t i = 0; i < n; i++) {
     *(uint8_t *)s = (uint8_t)c;

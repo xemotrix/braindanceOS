@@ -9,7 +9,7 @@ DEFARR(char);
 
 typedef struct {
   size_t len;
-  char *str;
+  const char *str;
 } SV;
 
 DEFARR(SV);
@@ -21,7 +21,7 @@ struct SV_builder {
 void svbuilder_write_char(struct SV_builder *b, char c);
 void svbuilder_write_cstring(struct SV_builder *b, char *str);
 
-bool svcmp(SV a, const char *cstring);
+bool sveq(SV a, const char *cstring);
 
 SV svcat(SV a, SV b);
 SV svbuild(struct SV_builder b);
