@@ -1,0 +1,23 @@
+If:
+  PathMatch: .*\.c
+
+CompileFlags:
+  Add:
+    - -m32
+    - -std=c23
+    - -ffreestanding
+    - -fno-pie
+    - -fno-pic
+---
+If:
+  PathMatch: .*\.h
+
+CompileFlags:
+  Add:
+    - -m32
+    - -std=c23
+    - -ffreestanding
+    - -fno-pie
+    - -fno-pic
+    - -x
+    - c-header
