@@ -11,7 +11,8 @@
 
 void startup() {
   ata_init();
-  fat32_init();
+  vfs_init_data fsops = fat32_init();
+  vfs_init(fsops);
   scheduler_create_kernel_task(&run_tty, "tty");
   kexit();
 }

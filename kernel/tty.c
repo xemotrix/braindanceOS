@@ -10,20 +10,20 @@
 #include "vfs.h"
 
 SV_array lines;
-FILE *cwd;
 
 static void run_cmd_ls() {
-  FILE *f = vfs_open_root();
-  vfs_dirent_t dirent;
-  while (vfs_readdir(f, &dirent)) {
-    kprintf("%x ", dirent.size);
-    kprintf("%s", dirent.file_name);
-    if (dirent.is_dir)
+  size_t fd = vfs_open_root();
+  vfs_dentry de;
+  while (vfs_readdir(fd, &de)) {
+    kprintf("%x ", de.size);
+    kprintf("%s", de.name);
+    if (de.is_dir)
       kprintf("/");
     kprintf("\n");
-  }
-  if (!vfs_close(f))
-    PANIC("error closing :(");
+  };
+
+  if (!vfs_close(fd))
+    PANIC("error closing");
 }
 
 static void run_cmd_ps() {
@@ -88,8 +88,6 @@ void parse_cmd(SV cmd) {
 }
 
 void run_tty() {
-  FILE *f = vfs_open_root();
-
   clear_screen();
   set_cursor(0, 0);
   kprintf(">");
@@ -110,10 +108,6 @@ void run_tty() {
       current_line = (struct SV_builder){0};
 
       parse_cmd(line);
-      // kprintf("\n");
-      // for (size_t i = 0; i < words.len; i++) {
-      //   kprintf("'%v'\n", words.elts[i]);
-      // }
       kprintf(">");
       break;
     case KEY_BACKSPACE:

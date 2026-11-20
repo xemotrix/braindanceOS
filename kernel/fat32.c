@@ -7,6 +7,13 @@
 
 // https://wiki.osdev.org/FAT#FAT_32
 
+#define FAT32_ATTR_READ_ONLY 0x1
+#define FAT32_ATTR_HIDDEN 0x2
+#define FAT32_ATTR_SYSTEM 0x4
+#define FAT32_ATTR_VOLUME_ID 0x8
+#define FAT32_ATTR_DIRECTORY 0x10
+#define FAT32_ATTR_ARCHIVE 0x20
+
 struct fat32_bios_parameter_block {
   uint32_t : 3 * 8; // JUMP
   uint64_t oem_identifier;
@@ -85,6 +92,23 @@ union fat32_dir_entry {
   struct fat32_STD_dir_entry std;
 };
 
+typedef struct {
+  char file_name[256];
+  uint32_t size;
+  uint8_t attributes;
+  uint16_t creation_time;
+  uint16_t creation_date;
+  uint16_t last_accessed_date;
+  uint16_t last_modification_time;
+  uint16_t last_modification_date;
+  uint32_t first_cluster;
+} fat32_dentry_t;
+
+typedef struct {
+  uint32_t first_sector;
+  size_t entry_idx;
+} fat32_file_t;
+
 #define FAT32_ATTR_READ_ONLY 0x1
 #define FAT32_ATTR_HIDDEN 0x2
 #define FAT32_ATTR_SYSTEM 0x4
@@ -104,6 +128,7 @@ uint32_t first_data_sector;
 uint32_t sectors_per_cluster;
 uint32_t sector_size;
 uint32_t cluster_size;
+fat32_dentry_t root_dentry;
 
 //===========================
 
@@ -121,6 +146,7 @@ void fat32_read_dir(size_t first_sector) {}
     var_name->last_accessed_date = 0;                                          \
     var_name->last_modification_time = 0;                                      \
     var_name->last_modification_date = 0;                                      \
+    var_name->first_cluster = 0;                                               \
   } while (0);
 
 fat32_file_t fat32_root() {
@@ -130,12 +156,12 @@ fat32_file_t fat32_root() {
   };
 }
 
-int8_t fat32_get_next_dir_entry(fat32_file_t *dir, fat32_dentry_t *fat32_de) {
+int fat32_get_next_dir_entry(fat32_file_t *dir, fat32_dentry_t *fat32_de) {
   INIT_DIR_ENTRY(fat32_de);
   union fat32_dir_entry fat32_dentries[cluster_size];
   int direntry_size = sizeof(union fat32_dir_entry);
 
-  ata_read_disk(root_sector, sectors_per_cluster, &fat32_dentries);
+  ata_read_disk(dir->first_sector, sectors_per_cluster, &fat32_dentries);
   if (dir->entry_idx >= cluster_size / sizeof(union fat32_dir_entry))
     PANIC("multi-cluster not supported");
 
@@ -157,6 +183,8 @@ int8_t fat32_get_next_dir_entry(fat32_file_t *dir, fat32_dentry_t *fat32_de) {
       fat32_de->last_accessed_date = de.std.last_accessed_date;
       fat32_de->last_modification_time = de.std.last_modification_time;
       fat32_de->last_modification_date = de.std.last_modification_date;
+      fat32_de->first_cluster = ((uint32_t)de.std.first_cluster_no_high) << 16 |
+                                (uint32_t)de.std.first_cluster_no_low;
       break;
     }
     int8_t order = (de.lfn.order & 0xf) - 1;
@@ -177,7 +205,25 @@ int8_t fat32_get_next_dir_entry(fat32_file_t *dir, fat32_dentry_t *fat32_de) {
   return 1;
 }
 
-void fat32_init() {
+int readdir(fat32_dentry_t *dirent, size_t *cursor, vfs_dentry *out) {
+  fat32_dentry_t fat32_de;
+  fat32_file_t dir = {
+      .first_sector = FIRST_SECTOR_IN_CLUSTER(dirent->first_cluster),
+      .entry_idx = *cursor / sizeof(union fat32_dir_entry),
+  };
+
+  int ok = fat32_get_next_dir_entry(&dir, &fat32_de);
+  *cursor = dir.entry_idx * sizeof(union fat32_dir_entry);
+  if (!ok)
+    return 0; // no more dirs
+
+  memcpy(out->name, fat32_de.file_name, sizeof(out->name));
+  out->size = fat32_de.size;
+  out->is_dir = fat32_de.attributes & FAT32_ATTR_DIRECTORY;
+  return 1;
+}
+
+vfs_init_data fat32_init() {
   struct fat32_boot_record br;
   ata_read_disk(0, 1, &br);
 
@@ -188,4 +234,21 @@ void fat32_init() {
   first_data_sector =
       br.bpb.n_reserved_sectors + (br.bpb.n_fats * br.sectors_per_fat);
   root_sector = FIRST_SECTOR_IN_CLUSTER(br.root_cluster_no);
+
+  root_dentry = (fat32_dentry_t){
+      .file_name = "/",
+      .size = 0,
+      .attributes = FAT32_ATTR_DIRECTORY,
+      .creation_time = 0,
+      .creation_date = 0,
+      .last_accessed_date = 0,
+      .last_modification_time = 0,
+      .last_modification_date = 0,
+      .first_cluster = br.root_cluster_no,
+  };
+
+  return (vfs_init_data){
+      .ops = (vfs_ops){.readdir = (vfs_readdir_f)&readdir},
+      .root_fs_data = &root_dentry,
+  };
 }

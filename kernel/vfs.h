@@ -4,16 +4,28 @@
 #include <stddef.h>
 #include <stdint.h>
 
-typedef struct FILE FILE;
+typedef struct {
+  char name[256];
+  struct vfs_info_node *inode;
+  size_t size;
+  bool is_dir;
+} vfs_dentry;
+
+typedef int (*vfs_readdir_f)(void *fs_data, size_t *cursor, vfs_dentry *dentry);
 
 typedef struct {
-  char file_name[255];
-  uint32_t size;
-  bool is_dir;
-} vfs_dirent_t;
+  vfs_readdir_f readdir;
+} vfs_ops;
 
-FILE *vfs_open_root();
-int8_t vfs_close(FILE *f);
-int8_t vfs_readdir(FILE *dir, vfs_dirent_t *out);
+typedef struct {
+  vfs_ops ops;
+  void *root_fs_data;
+} vfs_init_data;
+
+void vfs_init(vfs_init_data init);
+size_t vfs_open_root();
+int vfs_close(size_t fd);
+
+int vfs_readdir(size_t fd_dir, vfs_dentry *out);
 
 #endif
