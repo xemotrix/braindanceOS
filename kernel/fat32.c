@@ -1,6 +1,7 @@
 #include "fat32.h"
 #include "../drivers/ata.h"
 #include "../utils/string.h"
+#include "heap.h"
 #include "panic.h"
 #include <stddef.h>
 #include <stdint.h>
@@ -186,6 +187,28 @@ int fat32_get_next_dir_entry(fat32_file_t *dir, fat32_dentry_t *fat32_de) {
   return 1;
 }
 
+int read(fat32_dentry_t *dirent, size_t *cursor, size_t count, void *out) {
+  if (dirent->size > cluster_size)
+    PANIC("multi-cluster not implemented");
+
+  size_t first_sector = FIRST_SECTOR_IN_CLUSTER(dirent->first_cluster);
+  size_t bytes_read = 0;
+  size_t bytes_to_read = count;
+  if (*cursor + count > dirent->size)
+    bytes_to_read = dirent->size - *cursor;
+
+  while (bytes_read < bytes_to_read) {
+    uint8_t *buf = kmalloc(sector_size);
+    ata_read_disk(first_sector, 1, buf);
+    memcpy(out, buf + *cursor, bytes_to_read);
+    kfree(buf);
+    bytes_read += bytes_to_read;
+    *cursor += bytes_to_read;
+  }
+
+  return bytes_read;
+}
+
 int readdir(fat32_dentry_t *dirent, size_t *cursor, vfs_dentry *out) {
   fat32_dentry_t fat32_de = {0};
 
@@ -234,7 +257,11 @@ vfs_init_data fat32_init() {
   };
 
   return (vfs_init_data){
-      .ops = (vfs_ops){.readdir = (vfs_readdir_f)&readdir},
+      .ops =
+          (vfs_ops){
+              .readdir = (vfs_readdir_f)&readdir,
+              .read = (vfs_read_f)&read,
+          },
       .root_fs_data = &root_dentry,
   };
 }

@@ -12,15 +12,12 @@
 SV_array lines;
 
 static void run_cmd_ls() {
-  size_t fd = vfs_open("/homework");
-  vfs_dentry *de;
-  while ((de = vfs_readdir(fd)) != 0) {
-    kprintf("%x ", de->size);
-    kprintf("%s", de->name);
-    if (de->is_dir)
-      kprintf("/");
-    kprintf("\n");
-  };
+  size_t fd = vfs_open("/hello_disk.txt");
+
+  char buf[256];
+  size_t bytes_read = vfs_read(fd, buf, 256);
+  kprintf("bytes read: %d\n", bytes_read);
+  kprintf("contents: '%s'\n", buf);
 
   if (!vfs_close(fd))
     PANIC("error closing");

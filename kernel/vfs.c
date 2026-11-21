@@ -1,5 +1,6 @@
 #include "vfs.h"
 #include "../utils/string.h"
+#include "../utils/string_view.h"
 #include "panic.h"
 
 // an instance of an open file
@@ -117,6 +118,35 @@ int vfs_close(size_t fd) {
   fds[fd].node = 0;
   fds[fd].cursor = 0;
   return 1;
+}
+
+int vfs_seek(size_t fd, size_t offset, seek_whence whence) {
+  struct vfs_file *file = &fds[fd];
+  size_t target;
+  switch (whence) {
+  case SEEK_SET:
+    target = offset;
+    break;
+  case SEEK_CUR:
+    target = file->cursor + offset;
+    break;
+  case SEEK_END:
+    target = file->node->dentry.size + offset;
+    break;
+  }
+  file->cursor = target;
+  return target;
+}
+
+int vfs_read(size_t fd, void *buf, size_t count) {
+  if (!count)
+    return 0;
+  struct vfs_file *file = &fds[fd];
+  if (file->cursor >= file->node->dentry.size)
+    return 0;
+  vfs_node *node = file->node;
+  size_t bytes_read = ops.read(node->dentry.fs_data, &file->cursor, count, buf);
+  return bytes_read;
 }
 
 vfs_dentry *vfs_readdir(size_t fd) {
