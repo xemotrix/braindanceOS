@@ -114,13 +114,8 @@ typedef struct {
   uint32_t first_cluster;
   // to be able to update the on-disk dirent
   uint32_t dirent_sector;
-  uint32_t dirent_idx;
+  uint32_t dirent_idx; // idx in dirent sector
 } fat32_dentry_t;
-
-typedef struct {
-  uint32_t first_sector;
-  size_t entry_idx;
-} fat32_file_t;
 
 //=====STATE=================
 static uint32_t *fat_table;
@@ -157,9 +152,11 @@ static inline uint32_t fat_get_next_cluster(uint32_t cluster_no) {
 }
 
 static int parse_dir_entry(union fat32_dir_entry de, uint32_t dirent_sector,
-                           fat32_dentry_t *out) {
-  out->dirent_idx++;
+                           uint32_t dirent_idx, fat32_dentry_t *out) {
   if (de.std.attributes != 0xf) { // STD
+    if (!*out->file_name) {
+      memncpy(de.std.fname, out->file_name, sizeof(de.std.fname));
+    }
     out->size = de.std.file_size;
     out->attributes = de.std.attributes;
     out->creation_time = de.std.creation_time;
@@ -170,6 +167,7 @@ static int parse_dir_entry(union fat32_dir_entry de, uint32_t dirent_sector,
     out->first_cluster = ((uint32_t)de.std.first_cluster_no_high) << 16 |
                          (uint32_t)de.std.first_cluster_no_low;
     out->dirent_sector = dirent_sector;
+    out->dirent_idx = dirent_idx;
     return 0;
   } else { // LFN
     int8_t order = (de.lfn.order & 0xf) - 1;
@@ -188,35 +186,6 @@ static int parse_dir_entry(union fat32_dir_entry de, uint32_t dirent_sector,
     }
     return 1;
   }
-}
-
-static int fat32_get_next_dir_entry(fat32_file_t *dir,
-                                    fat32_dentry_t *fat32_de) {
-  union fat32_dir_entry *fat32_dentries = kmalloc(cluster_size);
-
-  size_t dirent_sector = dir->first_sector;
-  ata_read_disk(dirent_sector, sectors_per_cluster, fat32_dentries);
-  if (dir->entry_idx >= cluster_size / sizeof(union fat32_dir_entry))
-    PANIC("multi-cluster not supported");
-
-  union fat32_dir_entry de = fat32_dentries[dir->entry_idx];
-
-  while ((uint8_t)de.std.fname[0] == DELETED_MARKER)
-    de = fat32_dentries[++dir->entry_idx]; // skip deleted entries
-
-  if (de.std.fname[0] == END_MARKER) {
-    kfree(fat32_dentries);
-    return 0; // no more directory entries
-  }
-
-  for (;;) {
-    de = fat32_dentries[dir->entry_idx++];
-    if (!parse_dir_entry(de, dir->first_sector, fat32_de))
-      break;
-  }
-
-  kfree(fat32_dentries);
-  return 1;
 }
 
 static size_t fat32_find_empty_cluster() {
@@ -291,6 +260,11 @@ static void fill_fat_table() {
   size_t fat_table_size = fat_n_sectors * sector_size;
   fat_table = kmalloc(fat_table_size);
   ata_read_disk(fat_first_sector, fat_n_sectors, fat_table);
+}
+
+int fat32_create_empty_file(fat32_dentry_t *parent, const char *filename) {
+
+  return 1;
 }
 
 // fat32_write can assume:
@@ -406,17 +380,52 @@ int fat32_read(fat32_dentry_t *dirent, size_t *cursor, void *out,
 }
 
 int fat32_readdir(fat32_dentry_t *dirent, size_t *cursor, vfs_dentry *out) {
+  // find relevant cluster
+  size_t cluster_no = dirent->first_cluster;
+  for (size_t i = 0; i < *cursor / cluster_size; i++)
+    cluster_no = fat_get_next_cluster(cluster_no);
+  size_t sector = FIRST_SECTOR_IN_CLUSTER(cluster_no);
+
+  // total entry idx
+  size_t entry_idx = *cursor / sizeof(union fat32_dir_entry);
+  size_t entries_per_cluster = cluster_size / sizeof(union fat32_dir_entry);
+
+  // read cluster
+  union fat32_dir_entry *fat32_dentries = kmalloc(cluster_size);
+  ata_read_disk(sector, sectors_per_cluster, fat32_dentries);
+
+  // iterate entries to build dir entry
   fat32_dentry_t fat32_de = {0};
+  union fat32_dir_entry de;
+  for (;;) {
+    de = fat32_dentries[entry_idx++ % entries_per_cluster];
+    if ((uint8_t)de.std.fname[0] != DELETED_MARKER) {
+      if (de.std.fname[0] == END_MARKER) {
+        kfree(fat32_dentries);
+        *cursor = entry_idx * sizeof(union fat32_dir_entry);
+        return 0; // no more directory entries
+      }
 
-  fat32_file_t dir = {
-      .first_sector = FIRST_SECTOR_IN_CLUSTER(dirent->first_cluster),
-      .entry_idx = *cursor / sizeof(union fat32_dir_entry),
-  };
+      size_t idx_in_sector = (entry_idx - 1) % entries_per_cluster;
+      if (!parse_dir_entry(de, sector, idx_in_sector, &fat32_de))
+        break;
+    }
 
-  int ok = fat32_get_next_dir_entry(&dir, &fat32_de);
-  *cursor = dir.entry_idx * sizeof(union fat32_dir_entry);
-  if (!ok)
-    return 0; // no more dirs
+    // advance cluster if necessary
+    if (entry_idx % entries_per_cluster == 0) {
+      cluster_no = fat_get_next_cluster(cluster_no);
+      if (!cluster_no) {
+        kfree(fat32_dentries);
+        *cursor = entry_idx * sizeof(union fat32_dir_entry);
+        return 0; // no more directory entries
+      }
+      sector = FIRST_SECTOR_IN_CLUSTER(cluster_no);
+      ata_read_disk(sector, sectors_per_cluster, fat32_dentries);
+    }
+  }
+
+  kfree(fat32_dentries);
+  *cursor = entry_idx * sizeof(union fat32_dir_entry);
 
   memcpy(out->name, fat32_de.file_name, sizeof(out->name));
   out->size = fat32_de.size;
@@ -424,7 +433,6 @@ int fat32_readdir(fat32_dentry_t *dirent, size_t *cursor, vfs_dentry *out) {
 
   // todo: this leaks
   fat32_dentry_t *fs_data = kmalloc(sizeof(fat32_dentry_t));
-
   *fs_data = fat32_de;
   out->fs_data = fs_data;
   return 1;
