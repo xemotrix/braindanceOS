@@ -7,6 +7,6 @@
 void *kmalloc(size_t req_size);
 int8_t kfree(void *ptr);
 void *krealloc(void *ptr, size_t req_size);
-void memncpy(void *src, void *dst, size_t len);
+void memncpy(const void *src, void *dst, size_t len);
 
 #endif

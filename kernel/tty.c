@@ -4,6 +4,7 @@
 #include "../utils/ascii.h"
 #include "../utils/dynamic_array.h"
 #include "../utils/stdio.h"
+#include "../utils/string.h"
 #include "../utils/string_view.h"
 #include "panic.h"
 #include "scheduler.h"
@@ -11,20 +12,44 @@
 
 SV_array lines;
 
-static void run_cmd_ls() {
-  size_t fd = vfs_open("/hello_disk.txt");
-  size_t bytes_read;
-  char buf[420];
-  while ((bytes_read = vfs_read(fd, buf, sizeof(buf)))) {
-    kprintf("bytes read: %d\n", bytes_read);
-    SV contents = {
-        .str = buf,
-        .len = bytes_read,
-    };
-    kprintf("contents: '%v'\n", contents);
+static void run_cmd_ls(SV_array cmd) {
+  size_t fd;
+  if (cmd.len < 2) {
+    fd = vfs_open("/");
+  } else {
+    char *cstr = svcstring(cmd.elts[1]);
+    fd = vfs_open(cstr);
+    kfree(cstr);
   }
-  // size_t bytes_read = vfs_read(fd, buf, sizeof(buf));
+  vfs_dentry *de = 0;
+  while ((de = vfs_readdir(fd))) {
+    if (de->is_dir)
+      kprintf("D ");
+    else
+      kprintf("F ");
+    kprintf("%x %s\n", de->size, de->name);
+  }
 
+  if (!vfs_close(fd))
+    PANIC("error closing");
+}
+
+static void run_cmd_cat(SV_array cmd) {
+  char buf[512] = {0};
+  size_t fd;
+  if (cmd.len < 2) {
+    kprintf("must provide path to file\n");
+    return;
+  } else {
+    char *cstr = svcstring(cmd.elts[1]);
+    fd = vfs_open(cstr);
+    kfree(cstr);
+  }
+  size_t size;
+  while ((size = vfs_read(fd, buf, sizeof(buf)))) {
+    kprintf("%s", buf);
+  };
+  kprintf("\n");
   if (!vfs_close(fd))
     PANIC("error closing");
 }
@@ -82,7 +107,9 @@ void parse_cmd(SV cmd) {
   if (sveq(cmd_name, "ps")) {
     run_cmd_ps();
   } else if (sveq(cmd_name, "ls")) {
-    run_cmd_ls();
+    run_cmd_ls(words);
+  } else if (sveq(cmd_name, "cat")) {
+    run_cmd_cat(words);
   } else {
     kprintf("unrecognized command\n");
   }

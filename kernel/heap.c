@@ -117,7 +117,7 @@ static int8_t add_heap_page(struct heap_header *hh) {
   return 1;
 }
 
-void memncpy(void *src, void *dst, size_t len) {
+void memncpy(const void *src, void *dst, size_t len) {
   char *dst_char = (char *)dst;
   char *src_char = (char *)src;
   for (size_t i = 0; i < len; i++) {
