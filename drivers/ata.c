@@ -31,6 +31,8 @@
 #define SLAVE_DRIVE_CODE 0x50
 
 #define CMD_READ_SECTORS_EXT 0x24
+#define CMD_WRITE_SECTORS_EXT 0x34
+#define CMD_CACHE_FLUSH 0xE7
 #define CMD_IDENTIFY 0xEC
 
 #define STATUS_MSK_ERR 1
@@ -95,7 +97,8 @@ void ata_read_disk(uint64_t lba, uint16_t n_sectors, void *buff) {
 
   for (size_t sector_i = 0; sector_i < n_sectors; sector_i++) {
     uint8_t status;
-    SCH_WAIT_ON_COND(irq14_wq, !((status = inb(PORT_STATUS)) & STATUS_MSK_DRQ));
+    SCH_WAIT_WHILE_COND(irq14_wq,
+                        !((status = inb(PORT_STATUS)) & STATUS_MSK_DRQ));
     if (status & STATUS_MSK_ERR)
       PANIC("error reading ATA\n");
 
@@ -106,6 +109,53 @@ void ata_read_disk(uint64_t lba, uint16_t n_sectors, void *buff) {
   uint8_t status = inb(PORT_STATUS);
   if (status & STATUS_MSK_ERR)
     PANIC("error reading ATA\n");
+
+  sync_mutex_release(ata_mtx);
+}
+
+void ata_write_disk(uint64_t lba, uint16_t n_sectors, void *buff) {
+  sync_mutex_acquire(ata_mtx);
+
+  outb(PORT_DRIVE_SELECT, SLAVE_DRIVE_CODE);
+  outb(PORT_SECTOR_CT, HIGH_BYTE(n_sectors));
+  outb(PORT_LBA_LOW, GET_BYTE(lba, 3));
+  outb(PORT_LBA_MID, GET_BYTE(lba, 4));
+  outb(PORT_LBA_HIGH, GET_BYTE(lba, 5));
+  outb(PORT_SECTOR_CT, LOW_BYTE(n_sectors));
+  outb(PORT_LBA_LOW, GET_BYTE(lba, 0));
+  outb(PORT_LBA_MID, GET_BYTE(lba, 1));
+  outb(PORT_LBA_HIGH, GET_BYTE(lba, 2));
+
+  outb(PORT_COMMAND, CMD_WRITE_SECTORS_EXT);
+
+  // poll, on read there is no interrupt here
+  uint8_t status = inb(PORT_ALT_STATUS);
+  while (status & STATUS_MSK_BSY || !(status & STATUS_MSK_DRQ)) {
+    if (!(status & STATUS_MSK_BSY) && status & STATUS_MSK_ERR)
+      PANIC("error writing ATA\n");
+    status = inb(PORT_ALT_STATUS);
+  }
+
+  for (size_t sector_i = 0; sector_i < n_sectors; sector_i++) {
+    uint8_t status;
+    SCH_WAIT_WHILE_COND(irq14_wq,
+                        !((status = inb(PORT_STATUS)) & STATUS_MSK_DRQ));
+    if (status & STATUS_MSK_ERR)
+      PANIC("error writing ATA\n");
+
+    for (int i = 0; i < WORDS_PER_SECTOR; i++) {
+      uint16_t word = ((uint16_t *)buff)[i + WORDS_PER_SECTOR * sector_i];
+      outw(PORT_DATA, word);
+    }
+  }
+
+  SCH_WAIT_WHILE_COND(irq14_wq, (status = inb(PORT_STATUS)) & STATUS_MSK_BSY);
+  if (inb(PORT_ALT_STATUS) & STATUS_MSK_ERR)
+    PANIC("error writing ATA\n");
+
+  outb(PORT_COMMAND, CMD_CACHE_FLUSH);
+
+  SCH_WAIT_WHILE_COND(irq14_wq, (status = inb(PORT_STATUS)) & STATUS_MSK_BSY);
 
   sync_mutex_release(ata_mtx);
 }

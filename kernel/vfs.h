@@ -25,12 +25,15 @@ typedef struct vfs_node {
 } vfs_node;
 
 typedef int (*vfs_readdir_f)(void *fs_data, size_t *cursor, vfs_dentry *dentry);
-typedef int (*vfs_read_f)(void *fs_data, size_t *cursor, size_t count,
-                          void *out);
+typedef int (*vfs_read_f)(void *fs_data, size_t *cursor, void *out,
+                          size_t count);
+typedef int (*vfs_write_f)(void *fs_data, size_t *cursor, const void *in,
+                           size_t count);
 
 typedef struct {
   vfs_readdir_f readdir;
   vfs_read_f read;
+  vfs_write_f write;
 } vfs_ops;
 
 typedef struct {
@@ -47,6 +50,7 @@ int vfs_open(const char *path);
 int vfs_close(size_t fd);
 int vfs_read(size_t fd, void *buf, size_t count);
 int vfs_seek(size_t fd, size_t offset, seek_whence whence);
+int vfs_write(size_t fd, const void *buf, size_t count);
 vfs_dentry *vfs_readdir(size_t fd);
 
 #endif

@@ -53,8 +53,8 @@ void sync_mutex_destroy(mutex_t mx) {
 
 void sync_mutex_acquire(mutex_t mx) {
   ASSERT(mx != 0);
-  SCH_WAIT_ON_COND(mutexes.elts[mx].qid,
-                   atomic_flag_test_and_set(&mutexes.elts[mx].aflag));
+  SCH_WAIT_WHILE_COND(mutexes.elts[mx].qid,
+                      atomic_flag_test_and_set(&mutexes.elts[mx].aflag));
 }
 
 void sync_mutex_release(mutex_t mx) {

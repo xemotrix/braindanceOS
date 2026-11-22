@@ -43,7 +43,7 @@ void scheduler_unlock(uint32_t flags);
     scheduler_unlock(__scheduler_lock_flags);                                  \
   } while (0);
 
-#define SCH_WAIT_ON_COND(evt, cond)                                            \
+#define SCH_WAIT_WHILE_COND(evt, cond)                                         \
   do {                                                                         \
     uint32_t __scheduler_lock_flags = scheduler_lock();                        \
     while ((cond)) {                                                           \

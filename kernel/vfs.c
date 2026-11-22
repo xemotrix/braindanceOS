@@ -138,6 +138,18 @@ int vfs_seek(size_t fd, size_t offset, seek_whence whence) {
   return target;
 }
 
+int vfs_write(size_t fd, const void *buf, size_t count) {
+  if (!count)
+    return 0;
+  struct vfs_file *file = &fds[fd];
+  vfs_node *node = file->node;
+  int res = ops.write(node->dentry.fs_data, &file->cursor, buf, count);
+  if (file->cursor > node->dentry.size)
+    node->dentry.size = file->cursor;
+
+  return res;
+}
+
 int vfs_read(size_t fd, void *buf, size_t count) {
   if (!count)
     return 0;
@@ -145,7 +157,7 @@ int vfs_read(size_t fd, void *buf, size_t count) {
   if (file->cursor >= file->node->dentry.size)
     return 0;
   vfs_node *node = file->node;
-  size_t bytes_read = ops.read(node->dentry.fs_data, &file->cursor, count, buf);
+  size_t bytes_read = ops.read(node->dentry.fs_data, &file->cursor, buf, count);
   return bytes_read;
 }
 
