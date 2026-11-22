@@ -13,11 +13,17 @@ SV_array lines;
 
 static void run_cmd_ls() {
   size_t fd = vfs_open("/hello_disk.txt");
-
-  char buf[256];
-  size_t bytes_read = vfs_read(fd, buf, 256);
-  kprintf("bytes read: %d\n", bytes_read);
-  kprintf("contents: '%s'\n", buf);
+  size_t bytes_read;
+  char buf[420];
+  while ((bytes_read = vfs_read(fd, buf, sizeof(buf)))) {
+    kprintf("bytes read: %d\n", bytes_read);
+    SV contents = {
+        .str = buf,
+        .len = bytes_read,
+    };
+    kprintf("contents: '%v'\n", contents);
+  }
+  // size_t bytes_read = vfs_read(fd, buf, sizeof(buf));
 
   if (!vfs_close(fd))
     PANIC("error closing");

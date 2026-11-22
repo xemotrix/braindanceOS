@@ -221,8 +221,9 @@ void vmm_init() {
     page_dir[i] = FLG_DIR_READ_WRITE;
   }
 
-  // identity mapping the first 4MB
-  for (size_t i = 0; i < N_PAGETABLE_ENTRIES; i++) {
+  // identity mapping the first 4MB, minus the first page
+  // to make null derreferences page fault
+  for (size_t i = 1; i < N_PAGETABLE_ENTRIES; i++) {
     size_t addr = i * PAGE_SIZE;
     map_page(addr, addr);
   }

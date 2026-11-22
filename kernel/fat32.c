@@ -18,6 +18,12 @@
 #define DELETED_MARKER 0xE5
 #define END_MARKER 0x0
 
+#define FAT32_ADDR_MASK 0x0FFFFFFF
+#define FAT32_EOF 0x0FFFFFF8
+#define FAT32_BAD_CLUSTER 0x0FFFFFF7
+
+#define DIV_ROUND_UP(a, b) (((a) + (b) - 1) / b)
+
 struct fat32_bios_parameter_block {
   uint32_t : 3 * 8; // JUMP
   uint64_t oem_identifier;
@@ -116,13 +122,16 @@ typedef struct {
 #define FIRST_SECTOR_IN_CLUSTER(c)                                             \
   (first_data_sector + sectors_per_cluster * ((c) - 2))
 //=====STATE=================
-uint32_t root_cluster_no;
-uint32_t root_sector;
-uint32_t first_data_sector;
-uint32_t sectors_per_cluster;
-uint32_t sector_size;
-uint32_t cluster_size;
-fat32_dentry_t root_dentry;
+static uint32_t *fat_table;
+static uint32_t fat_first_sector;
+static uint32_t fat_n_sectors;
+static uint32_t root_cluster_no;
+static uint32_t root_sector;
+static uint32_t first_data_sector;
+static uint32_t sectors_per_cluster;
+static uint32_t sector_size;
+static uint32_t cluster_size;
+static fat32_dentry_t root_dentry;
 
 //===========================
 
@@ -131,6 +140,17 @@ fat32_file_t fat32_root() {
       .first_sector = root_sector,
       .entry_idx = 0,
   };
+}
+
+static inline uint32_t fat_get_next_cluster(uint32_t cluster_no) {
+  uint32_t table_value = fat_table[cluster_no] & FAT32_ADDR_MASK;
+  if (table_value >= FAT32_EOF) {
+    PANIC("EOF");
+  }
+  if (table_value == FAT32_BAD_CLUSTER) {
+    PANIC("bad cluster!");
+  }
+  return table_value;
 }
 
 int fat32_get_next_dir_entry(fat32_file_t *dir, fat32_dentry_t *fat32_de) {
@@ -187,24 +207,43 @@ int fat32_get_next_dir_entry(fat32_file_t *dir, fat32_dentry_t *fat32_de) {
   return 1;
 }
 
+// read can assume:
+// - count > 0, that is handled by vfs
+// - *cursor points to somewhere withing the file (not past it)
 int read(fat32_dentry_t *dirent, size_t *cursor, size_t count, void *out) {
-  if (dirent->size > cluster_size)
-    PANIC("multi-cluster not implemented");
-
-  size_t first_sector = FIRST_SECTOR_IN_CLUSTER(dirent->first_cluster);
   size_t bytes_read = 0;
-  size_t bytes_to_read = count;
-  if (*cursor + count > dirent->size)
-    bytes_to_read = dirent->size - *cursor;
+  size_t bytes_left = count;
+  if (count + *cursor > dirent->size)
+    bytes_left = dirent->size - *cursor;
 
-  while (bytes_read < bytes_to_read) {
-    uint8_t *buf = kmalloc(sector_size);
-    ata_read_disk(first_sector, 1, buf);
-    memcpy(out, buf + *cursor, bytes_to_read);
-    kfree(buf);
-    bytes_read += bytes_to_read;
-    *cursor += bytes_to_read;
+  // find start cluster
+  size_t cluster_no = dirent->first_cluster;
+  for (size_t i = 0; i < *cursor / cluster_size; i++) {
+    cluster_no = fat_get_next_cluster(cluster_no);
   }
+
+  uint8_t *buf = kmalloc(cluster_size);
+  for (;;) {
+    ata_read_disk(FIRST_SECTOR_IN_CLUSTER(cluster_no), sectors_per_cluster,
+                  buf);
+
+    size_t offset_in_cluster = *cursor % cluster_size;
+    size_t left_in_cluster = cluster_size - offset_in_cluster;
+    size_t copy_size =
+        bytes_left < left_in_cluster ? bytes_left : left_in_cluster;
+
+    void *dst = (uint8_t *)out + bytes_read;
+    void *src = (uint8_t *)buf + *cursor % cluster_size;
+    memcpy(dst, src, copy_size);
+
+    bytes_read += copy_size;
+    *cursor += copy_size;
+    bytes_left -= copy_size;
+    if (bytes_left == 0)
+      break;
+    cluster_no = fat_get_next_cluster(cluster_no);
+  }
+  kfree(buf);
 
   return bytes_read;
 }
@@ -232,6 +271,12 @@ int readdir(fat32_dentry_t *dirent, size_t *cursor, vfs_dentry *out) {
   return 1;
 }
 
+static void fill_fat_table() {
+  size_t fat_table_size = fat_n_sectors * sector_size;
+  fat_table = kmalloc(fat_table_size);
+  ata_read_disk(fat_first_sector, fat_n_sectors, fat_table);
+}
+
 vfs_init_data fat32_init() {
   struct fat32_boot_record br;
   ata_read_disk(0, 1, &br);
@@ -243,6 +288,10 @@ vfs_init_data fat32_init() {
   first_data_sector =
       br.bpb.n_reserved_sectors + (br.bpb.n_fats * br.sectors_per_fat);
   root_sector = FIRST_SECTOR_IN_CLUSTER(br.root_cluster_no);
+  fat_first_sector = br.bpb.n_reserved_sectors;
+  fat_n_sectors = br.sectors_per_fat;
+
+  fill_fat_table();
 
   root_dentry = (fat32_dentry_t){
       .file_name = "/",

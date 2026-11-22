@@ -3,6 +3,7 @@
 * Graphics (not VGA text)
 * Stack traces
 ### Phase 2
+* Serial debug
 * Userspace
 
 ## ONGOING
