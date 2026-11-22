@@ -4,8 +4,6 @@
 #include "vmm.h"
 #include <stddef.h>
 
-// #define DISABLE_PREEMTION
-
 struct task {
   uint32_t pid;
   struct interrupt_frame *frame;
@@ -36,18 +34,15 @@ extern void __start_task(struct interrupt_frame *target);
 #define STACK_N_PAGES 10
 
 // ==STATE===================
-struct task tasks[MAX_TASKS];
-struct task idle_task;
-uint32_t n_tasks;
-volatile int32_t current_task = -1;
-volatile uint32_t preempt_ticks = 0;
-volatile uint64_t time_since_boot = 0; // nanos
-volatile uint64_t last_time_count = 0;
-uint32_t pid_counter;
-
-// struct waiting_task_queue wait_queues[WAKEUP_MAX] = {
-//     [WAKEUP_ATA] = {0},
-// };
+static struct task tasks[MAX_TASKS];
+static struct task idle_task;
+static uint32_t n_tasks;
+static volatile int32_t current_task = -1;
+static volatile uint32_t preempt_ticks = 0;
+static volatile uint64_t time_since_boot = 0; // nanos
+static volatile uint64_t last_time_count = 0;
+static uint32_t pid_counter;
+static bool needs_resched;
 
 DEFARR_STRUCT(waiting_task_queue);
 waiting_task_queue_array wait_queues;
@@ -106,6 +101,8 @@ void scheduler_wait_for(wait_queue_id evt) {
 void scheduler_wakeup(wait_queue_id evt) {
   struct waiting_task_queue *q = &wait_queues.elts[evt];
   struct task *tsk = q->head;
+  if (tsk)
+    needs_resched = true;
   while (tsk) {
     struct task *next_tsk = tsk->next;
     tsk->next = NULL;
@@ -114,13 +111,13 @@ void scheduler_wakeup(wait_queue_id evt) {
   }
   q->head = NULL;
   q->tail = NULL;
-  // don't switch inmediately, wait for preemption
 }
 
 void scheduler_wakeup_one(wait_queue_id evt) {
   struct waiting_task_queue *q = &wait_queues.elts[evt];
   if (!q->head)
     return;
+  needs_resched = true;
   struct task *tsk = q->head;
   struct task *next_tsk = tsk->next;
   q->head = next_tsk;
@@ -181,7 +178,7 @@ static int32_t scheduler_find_ready_task() {
 static void update_time_used() {
   uint64_t elapsed = time_since_boot - last_time_count;
   last_time_count = time_since_boot;
-  if (current_task > 0)
+  if (current_task >= 0)
     tasks[current_task].time_used += elapsed;
   else
     idle_task.time_used += elapsed;
@@ -195,6 +192,9 @@ void scheduler_block_task(enum task_state state) {
 
   tasks[current_task].state = state;
   struct interrupt_frame **curr_frame_ptr = &(tasks[current_task].frame);
+
+  preempt_ticks = 0;
+  update_time_used();
 
   int32_t next_idx = scheduler_find_ready_task();
   struct interrupt_frame *next_frame;
@@ -235,11 +235,13 @@ void kexit() {
   UNREACHABLE;
 }
 
-void nano_sleep_until(int64_t when) {
+void nano_sleep_until(uint64_t when) {
   uint32_t lock_flags = scheduler_lock();
   ASSERT(current_task != -1);
-  if (when < time_since_boot)
+  if (when < time_since_boot) {
+    scheduler_unlock(lock_flags);
     return;
+  }
 
   tasks[current_task].sleep_expiry = when;
   tasks[current_task].last_running_time = time_since_boot;
@@ -294,26 +296,17 @@ void scheduler_create_kernel_task(void (*startingEIP)(void), const char *name) {
   tasks[n_tasks++] = t;
 }
 
-struct interrupt_frame *
-scheduler_PIT_IRQ_handler(struct interrupt_frame *frame) {
-  time_since_boot += NANOS_PER_TICK;
-#ifdef DISABLE_PREEMTION
-  return frame;
-#endif
-
-  preempt_ticks++;
-  if (preempt_ticks < MAX_PREEMPT_TICKS)
+struct interrupt_frame *scheduler_irq_exit(struct interrupt_frame *frame) {
+  if (!needs_resched)
     return frame;
 
-  // kprintf("preempt\n");
-
+  needs_resched = false;
   preempt_ticks = 0;
   update_time_used();
 
   int32_t task_idx = scheduler_find_ready_task();
-  if (task_idx < 0) {
+  if (task_idx < 0)
     return frame;
-  }
 
   if (current_task >= 0) {
     tasks[current_task].frame = frame;
@@ -326,6 +319,13 @@ scheduler_PIT_IRQ_handler(struct interrupt_frame *frame) {
   current_task = task_idx;
   tasks[task_idx].state = TASK_STATE_RUNNING;
   return tasks[task_idx].frame;
+}
+
+void scheduler_PIT_IRQ_handler() {
+  time_since_boot += NANOS_PER_TICK;
+  if (++preempt_ticks < MAX_PREEMPT_TICKS && current_task != -1)
+    return;
+  needs_resched = true;
 }
 
 static void idle() {

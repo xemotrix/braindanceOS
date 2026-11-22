@@ -59,8 +59,8 @@ void scheduler_wait_for(wait_queue_id evt);
 void nano_sleep(int64_t nanos);
 void milli_sleep(int64_t millis);
 void sleep(int64_t seconds);
-struct interrupt_frame *
-scheduler_PIT_IRQ_handler(struct interrupt_frame *frame);
+void scheduler_PIT_IRQ_handler();
+struct interrupt_frame *scheduler_irq_exit(struct interrupt_frame *frame);
 
 //====READ INFO=======================
 struct scheduler_task_info {

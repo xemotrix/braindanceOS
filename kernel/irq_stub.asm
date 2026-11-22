@@ -28,7 +28,10 @@ __irq1:
 __irq14:
     pushad
     cld
+    push esp
     call irq14_handler
+    add esp, 4
+    mov esp, eax
     popad
     iretd
 
