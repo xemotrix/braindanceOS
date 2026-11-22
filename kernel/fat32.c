@@ -145,13 +145,6 @@ static size_t n_fats;
 
 //===========================
 
-fat32_file_t fat32_root() {
-  return (fat32_file_t){
-      .first_sector = root_sector,
-      .entry_idx = 0,
-  };
-}
-
 static inline uint32_t fat_get_next_cluster(uint32_t cluster_no) {
   uint32_t table_value = fat_table[cluster_no] & FAT32_ADDR_MASK;
   if (table_value >= FAT32_EOF) {
@@ -163,11 +156,46 @@ static inline uint32_t fat_get_next_cluster(uint32_t cluster_no) {
   return table_value;
 }
 
-int fat32_get_next_dir_entry(fat32_file_t *dir, fat32_dentry_t *fat32_de) {
-  union fat32_dir_entry
-      fat32_dentries[cluster_size / sizeof(union fat32_dir_entry)];
+static int parse_dir_entry(union fat32_dir_entry de, uint32_t dirent_sector,
+                           fat32_dentry_t *out) {
+  out->dirent_idx++;
+  if (de.std.attributes != 0xf) { // STD
+    out->size = de.std.file_size;
+    out->attributes = de.std.attributes;
+    out->creation_time = de.std.creation_time;
+    out->creation_date = de.std.creation_date;
+    out->last_accessed_date = de.std.last_accessed_date;
+    out->last_modification_time = de.std.last_modification_time;
+    out->last_modification_date = de.std.last_modification_date;
+    out->first_cluster = ((uint32_t)de.std.first_cluster_no_high) << 16 |
+                         (uint32_t)de.std.first_cluster_no_low;
+    out->dirent_sector = dirent_sector;
+    return 0;
+  } else { // LFN
+    int8_t order = (de.lfn.order & 0xf) - 1;
+    size_t filename_idx = 0;
+    for (int j = 0; j < 10 / 2; j++) {
+      char c = (char)(((uint16_t *)de.lfn.text1)[j] & 0xffff);
+      out->file_name[(order * 13) + filename_idx++] = c;
+    }
+    for (int j = 0; j < 12 / 2; j++) {
+      char c = (char)(((uint16_t *)de.lfn.text2)[j] & 0xffff);
+      out->file_name[(order * 13) + filename_idx++] = c;
+    }
+    for (int j = 0; j < 4 / 2; j++) {
+      char c = (char)(((uint16_t *)de.lfn.text3)[j] & 0xffff);
+      out->file_name[(order * 13) + filename_idx++] = c;
+    }
+    return 1;
+  }
+}
+
+static int fat32_get_next_dir_entry(fat32_file_t *dir,
+                                    fat32_dentry_t *fat32_de) {
+  union fat32_dir_entry *fat32_dentries = kmalloc(cluster_size);
+
   size_t dirent_sector = dir->first_sector;
-  ata_read_disk(dirent_sector, sectors_per_cluster, &fat32_dentries);
+  ata_read_disk(dirent_sector, sectors_per_cluster, fat32_dentries);
   if (dir->entry_idx >= cluster_size / sizeof(union fat32_dir_entry))
     PANIC("multi-cluster not supported");
 
@@ -176,46 +204,18 @@ int fat32_get_next_dir_entry(fat32_file_t *dir, fat32_dentry_t *fat32_de) {
   while ((uint8_t)de.std.fname[0] == DELETED_MARKER)
     de = fat32_dentries[++dir->entry_idx]; // skip deleted entries
 
-  if (de.std.fname[0] == END_MARKER)
+  if (de.std.fname[0] == END_MARKER) {
+    kfree(fat32_dentries);
     return 0; // no more directory entries
+  }
 
-  bool has_long_name = false;
   for (;;) {
     de = fat32_dentries[dir->entry_idx++];
-    if (de.std.attributes != 0xf) {
-      if (!has_long_name) {
-        memcpy(fat32_de->file_name, de.std.fname, 11);
-        fat32_de->file_name[11] = 0;
-      }
-      fat32_de->size = de.std.file_size;
-      fat32_de->attributes = de.std.attributes;
-      fat32_de->creation_time = de.std.creation_time;
-      fat32_de->creation_date = de.std.creation_date;
-      fat32_de->last_accessed_date = de.std.last_accessed_date;
-      fat32_de->last_modification_time = de.std.last_modification_time;
-      fat32_de->last_modification_date = de.std.last_modification_date;
-      fat32_de->first_cluster = ((uint32_t)de.std.first_cluster_no_high) << 16 |
-                                (uint32_t)de.std.first_cluster_no_low;
-      fat32_de->dirent_sector = dirent_sector;
-      fat32_de->dirent_idx = dir->entry_idx - 1;
+    if (!parse_dir_entry(de, dir->first_sector, fat32_de))
       break;
-    }
-    has_long_name = true;
-    int8_t order = (de.lfn.order & 0xf) - 1;
-    size_t filename_idx = 0;
-    for (int j = 0; j < 10 / 2; j++) {
-      char c = (char)(((uint16_t *)de.lfn.text1)[j] & 0xffff);
-      fat32_de->file_name[(order * 13) + filename_idx++] = c;
-    }
-    for (int j = 0; j < 12 / 2; j++) {
-      char c = (char)(((uint16_t *)de.lfn.text2)[j] & 0xffff);
-      fat32_de->file_name[(order * 13) + filename_idx++] = c;
-    }
-    for (int j = 0; j < 4 / 2; j++) {
-      char c = (char)(((uint16_t *)de.lfn.text3)[j] & 0xffff);
-      fat32_de->file_name[(order * 13) + filename_idx++] = c;
-    }
   }
+
+  kfree(fat32_dentries);
   return 1;
 }
 
@@ -285,6 +285,12 @@ static void fat32_patch_dirent(fat32_dentry_t *dirent) {
   // dent->last_modification_date
   ata_write_disk(dirent->dirent_sector, sectors_per_cluster, entries);
   kfree(entries);
+}
+
+static void fill_fat_table() {
+  size_t fat_table_size = fat_n_sectors * sector_size;
+  fat_table = kmalloc(fat_table_size);
+  ata_read_disk(fat_first_sector, fat_n_sectors, fat_table);
 }
 
 // fat32_write can assume:
@@ -422,12 +428,6 @@ int fat32_readdir(fat32_dentry_t *dirent, size_t *cursor, vfs_dentry *out) {
   *fs_data = fat32_de;
   out->fs_data = fs_data;
   return 1;
-}
-
-static void fill_fat_table() {
-  size_t fat_table_size = fat_n_sectors * sector_size;
-  fat_table = kmalloc(fat_table_size);
-  ata_read_disk(fat_first_sector, fat_n_sectors, fat_table);
 }
 
 vfs_init_data fat32_init() {
