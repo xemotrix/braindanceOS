@@ -1,8 +1,6 @@
 #include "heap.h"
-#include "../drivers/vga_text.h"
 #include "panic.h"
 #include "vmm.h"
-
 #include <stdbool.h>
 
 #define PAGE_SIZE 0x1000
@@ -23,78 +21,6 @@ struct heap_header {
 
 struct heap_header *first_free;
 struct heap_header *heap_start;
-
-static void check_heap(const char *msg) {
-  put_string(msg);
-  put_nl();
-  struct heap_header *h = first_free;
-  size_t block_num = 0;
-  while (h) {
-    if (h->witness != 0XFACEC0DE) {
-      PANIC("missing 0XFACEC0DE\n");
-    }
-    if (h->size & USED_FLAG) {
-      PANIC("got to non free block\n");
-    }
-    if (!h->prev_free && block_num > 0) {
-      PANIC("backlink broken\n");
-    }
-    if (h->next_free) {
-      if (h->next_free == h) {
-        PANIC("next points to self\n");
-      }
-      if (h->next_free < h) {
-        PANIC("next precedes self\n");
-      }
-    }
-    if (h->prev_free) {
-      if (h->prev_free == h) {
-        PANIC("prev points to self\n");
-      }
-      if (h->prev_free > h) {
-        PANIC("prev after self\n");
-      }
-    }
-    block_num++;
-    h = h->next_free;
-  }
-}
-
-static inline void print_header(struct heap_header *hh) {
-  put_string("HEADER at: ");
-  put_hex((uint32_t)hh);
-  if (hh->size & USED_FLAG)
-    put_string(" (used)");
-  else
-    put_string(" (free)");
-  put_nl();
-  put_string("  h->size: ");
-  put_number((uint32_t)hh->size & SIZE_MASK);
-  put_nl();
-  put_string("  h->prev: ");
-  put_hex((uint32_t)hh->prev_free);
-  put_nl();
-  put_string("  h->next_free: ");
-  put_hex((uint32_t)hh->next_free);
-  put_nl();
-}
-
-static void debug_heap() {
-  struct heap_header *h = first_free;
-  check_heap("debug_header");
-  while (h) {
-    put_string("HEADER ");
-    put_hex((size_t)h);
-    put_string(": size:");
-    put_hex_full((size_t)h->size);
-    put_string(" next:");
-    put_hex_full((size_t)h->next_free);
-    put_string(" prev:");
-    put_hex_full((size_t)h->prev_free);
-    put_nl();
-    h = h->next_free;
-  }
-}
 
 void init_heap() {
   struct heap_header *hh = vmm_get_page(RANGE_HEAP);

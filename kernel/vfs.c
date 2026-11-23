@@ -1,7 +1,7 @@
 #include "vfs.h"
-#include "../utils/string.h"
-#include "../utils/string_view.h"
 #include "panic.h"
+#include <string.h>
+#include <utils/string_view.h>
 
 // an instance of an open file
 struct vfs_file {

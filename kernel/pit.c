@@ -1,5 +1,5 @@
 #include "pit.h"
-#include "../drivers/ports.h"
+#include <drivers/ports.h>
 
 // https://wiki.osdev.org/Programmable_Interval_Timer
 

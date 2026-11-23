@@ -1,10 +1,10 @@
 #include "irq.h"
-#include "../drivers/ata.h"
-#include "../drivers/keyboard.h"
-#include "../drivers/ports.h"
-#include "../kernel/panic.h"
-#include "../kernel/pic.h"
-#include "../kernel/scheduler.h"
+#include "panic.h"
+#include "pic.h"
+#include "scheduler.h"
+#include <drivers/ata.h>
+#include <drivers/keyboard.h>
+#include <drivers/ports.h>
 
 #define PIT_IRQ 0
 #define KEYBOARD_IRQ 1

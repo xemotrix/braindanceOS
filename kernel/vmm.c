@@ -1,5 +1,5 @@
 #include "vmm.h"
-#include "../kernel/panic.h"
+#include "panic.h"
 #include "pmm.h"
 
 // https://wiki.osdev.org/X86_Paging

@@ -1,8 +1,8 @@
 #include "scheduler.h"
-#include "../utils/dynamic_array.h"
 #include "panic.h"
 #include "vmm.h"
 #include <stddef.h>
+#include <utils/dynamic_array.h>
 
 struct task {
   uint32_t pid;

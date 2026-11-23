@@ -1,9 +1,9 @@
-#include "stdio.h"
-#include "../drivers/vga_text.h"
+#ifdef __is_libk
+#include <drivers/vga_text.h>
 #include <stdarg.h>
-#include <stddef.h>
+#include <stdio.h>
 
-void kprintf(const char *format, ...) {
+void printf(const char *restrict format, ...) {
   va_list args;
   va_start(args, format);
 
@@ -15,36 +15,39 @@ void kprintf(const char *format, ...) {
       case '\0':
         break;
       case '%':
-        put_char('%');
+        putchar('%');
         break;
       case 'd':
-        put_number(va_arg(args, int32_t));
+        vga_put_number(va_arg(args, int32_t));
         break;
       case 'u':
-        put_number(va_arg(args, uint32_t));
+        vga_put_number(va_arg(args, uint32_t));
         break;
       case 'x':
-        put_hex(va_arg(args, uint32_t));
+        vga_put_hex(va_arg(args, uint32_t));
         break;
       case 'l':
-        put_hex(va_arg(args, uint64_t));
+        vga_put_hex(va_arg(args, uint64_t));
         break;
       case 'c':
-        put_char((char)va_arg(args, int));
+        putchar((char)va_arg(args, int));
         break;
       case 's':
-        put_string(va_arg(args, const char *));
+        puts(va_arg(args, const char *));
         break;
       case 'v':
-        put_sv(va_arg(args, SV));
+        vga_put_sv(va_arg(args, SV));
         break;
       }
       format++;
       continue;
     }
-    put_char(c);
+    putchar(c);
     format++;
   }
 
   va_end(args);
 }
+#else
+#warning "libc userspace not implemented"
+#endif

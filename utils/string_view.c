@@ -1,5 +1,5 @@
 #include "string_view.h"
-#include "../kernel/heap.h"
+#include <kernel/heap.h>
 
 void svbuilder_write_char(struct SV_builder *b, char c) {
   //

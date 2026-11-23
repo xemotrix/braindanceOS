@@ -1,7 +1,7 @@
 #ifndef DYNAMIC_ARRAY_H
 #define DYNAMIC_ARRAY_H
 
-#include "../kernel/heap.h"
+#include <kernel/heap.h>
 #include <stddef.h>
 
 #define DEFARR(type)                                                           \

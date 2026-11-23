@@ -5,6 +5,11 @@ ASM_BOOT =$(wildcard boot/*.asm)
 ASM_STUB = $(wildcard kernel/*.asm)
 OBJ = ${ASM_STUB:.asm=.o} ${C_SOURCES:.c=.o}
 
+CFLAGS = -g -O0 -ffreestanding -std=c23 -isystem libc/include -I.
+
+LIBK_SRC = $(wildcard libc/*/*.c)
+LIBK_OBJ = $(LIBK_SRC:.c=.libk.o)
+
 all: os-image
 
 debug: all 
@@ -30,15 +35,17 @@ os-image: boot/boot_sect.bin boot/second_stage.bin kernel.bin
 kernel.bin: kernel.elf
 	i686-elf-objcopy -O binary $< $@
 
-kernel.elf: kernel/kernel_entry.o ${OBJ} 
-	i686-elf-ld -o kernel.elf \
-		-T kernel/linker.ld \
-		$^ 
-# -Ttext 0x100000 \
+kernel.elf: kernel/kernel_entry.o ${OBJ} libk.a
+	i686-elf-ld -o kernel.elf -T kernel/linker.ld $^ 
 
-# $< is first dep, $@ is output file
 %.o: %.c ${HEADERS}
-	i686-elf-gcc -g -O0 -ffreestanding -std=c23 -c $< -o $@
+	i686-elf-gcc $(CFLAGS) -c $< -o $@
+
+%.libk.o: %.c
+	i686-elf-gcc $(CFLAGS) -D__is_libk -c $< -o $@
+
+libk.a: $(LIBK_OBJ)
+	i686-elf-ar rcs $@ $^
 
 %.o: %.asm
 	nasm $< -f elf -o $@
@@ -74,3 +81,6 @@ mount: disk.img mount_dir
 
 umount: 
 	@sudo umount ./mnt
+
+compile-commands.json: clean
+	bear -- make

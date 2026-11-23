@@ -1,4 +1,5 @@
 *.o
+*.a
 *.bin
 *.elf
 os-image
@@ -6,3 +7,4 @@ os-image
 *.img
 /mnt
 /pdfdocs
+compile_commands.json

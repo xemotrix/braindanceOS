@@ -1,5 +1,5 @@
 #include "pic.h"
-#include "../drivers/ports.h"
+#include <drivers/ports.h>
 // PROGRAMMABLE INTERRUPT CONTROLLER
 // https://wiki.osdev.org/8259_PIC
 

@@ -1,7 +1,7 @@
 #include "keyboard.h"
-#include "../drivers/ports.h"
-#include "../drivers/vga_text.h"
-#include "../utils/ring_buffer.h"
+#include <drivers/ports.h>
+#include <drivers/vga_text.h>
+#include <utils/ring_buffer.h>
 
 key_t keycodes[UINT8_MAX] = {
     [0x10] = KEY_Q,      [0x11] = KEY_W,         [0x12] = KEY_E,
@@ -72,9 +72,9 @@ void handle_keyboard_interrupt(uint8_t scancode) {
 
   if (!kc) {
     outb(0x20, 0x20);
-    put_char('<');
-    put_number(scancode);
-    put_char('>');
+    vga_put_char('<');
+    vga_put_number(scancode);
+    vga_put_char('>');
     return;
   }
 

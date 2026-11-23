@@ -1,10 +1,10 @@
 #include "fat32.h"
-#include "../drivers/ata.h"
-#include "../utils/string.h"
 #include "heap.h"
 #include "panic.h"
+#include <drivers/ata.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 // https://wiki.osdev.org/FAT#FAT_32
 

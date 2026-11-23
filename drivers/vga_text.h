@@ -1,44 +1,39 @@
 #ifndef VGA_TEXT_H
 #define VGA_TEXT_H
 
-#include "../utils/string_view.h"
 #include <stdint.h>
+#include <utils/string_view.h>
 
-#define COLOR_BLACK 0
-#define COLOR_BLUE 1
-#define COLOR_GREEN 2
-#define COLOR_CYAN 3
-#define COLOR_RED 4
-#define COLOR_MAGENTA 5
-#define COLOR_BROWN 6
-#define COLOR_LIGHTGREY 7
-#define COLOR_DARKGREY 8
-#define COLOR_LIGHTBLUE 9
-#define COLOR_LIGHTGREEN 10
-#define COLOR_LIGHTCYAN 11
-#define COLOR_LIGHTRED 12
-#define COLOR_LIGHTMAGENTA 13
-#define COLOR_LIGHTBROWN 14
-#define COLOR_WHITE 15
+#define VGA_COLOR_BLACK 0
+#define VGA_COLOR_BLUE 1
+#define VGA_COLOR_GREEN 2
+#define VGA_COLOR_CYAN 3
+#define VGA_COLOR_RED 4
+#define VGA_COLOR_MAGENTA 5
+#define VGA_COLOR_BROWN 6
+#define VGA_COLOR_LIGHTGREY 7
+#define VGA_COLOR_DARKGREY 8
+#define VGA_COLOR_LIGHTBLUE 9
+#define VGA_COLOR_LIGHTGREEN 10
+#define VGA_COLOR_LIGHTCYAN 11
+#define VGA_COLOR_LIGHTRED 12
+#define VGA_COLOR_LIGHTMAGENTA 13
+#define VGA_COLOR_LIGHTBROWN 14
+#define VGA_COLOR_WHITE 15
 
-void reset_color();
-void set_color(uint8_t fg, uint8_t bg);
+void vga_reset_cursor();
+void vga_set_cursor(uint16_t row, uint16_t col);
 
-void reset_cursor();
-void set_cursor(uint16_t row, uint16_t col);
+void vga_cursor_advance();
+void vga_cursor_back();
 
-void cursor_advance();
-void cursor_back();
+void vga_put_char(char c);
+void vga_put_number(int32_t num);
+void vga_put_hex(uint64_t num);
+void vga_put_hex_full(uint32_t num);
+void vga_put_sv(SV sv);
 
-void put_char(char c);
-void put_number(int32_t num);
-void put_hex(uint64_t num);
-void put_hex_full(uint32_t num);
-void put_nl();
-void put_string(const char *msg);
-void put_sv(SV sv);
-
-void scroll();
-void clear_screen();
+void vga_scroll();
+void vga_clear_screen();
 
 #endif

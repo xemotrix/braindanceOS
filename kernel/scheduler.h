@@ -1,8 +1,8 @@
 #ifndef MULTITASKING_H
 #define MULTITASKING_H
-#include "../utils/dynamic_array.h"
 #include "irq.h"
 #include <stdint.h>
+#include <utils/dynamic_array.h>
 
 enum task_state {
   TASK_STATE_UNUSED,

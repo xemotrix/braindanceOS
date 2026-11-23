@@ -1,10 +1,10 @@
 #include "ata.h"
-#include "../kernel/panic.h"
-#include "../kernel/scheduler.h"
-#include "../kernel/sync.h"
-#include "../utils/stdio.h"
 #include "ports.h"
+#include <kernel/panic.h>
+#include <kernel/scheduler.h>
+#include <kernel/sync.h>
 #include <stddef.h>
+#include <stdio.h>
 
 // https://wiki.osdev.org/ATA_PIO_Mode
 // https://wiki.osdev.org/ATA_Command_Matrix
@@ -180,11 +180,11 @@ void ata_init() {
 
   uint8_t drive_exists = inb(PORT_COMMAND);
   if (!drive_exists) {
-    kprintf("drive does not exist\n");
+    printf("drive does not exist\n");
     return;
   }
 
-  kprintf("drive EXISTS\n");
+  printf("drive EXISTS\n");
 
   while (inb(PORT_STATUS) & STATUS_MSK_BSY) {
     milli_sleep(1);
@@ -208,11 +208,11 @@ void ata_init() {
   ata_identify_data.addressable_sectors =
       ata_identify_data_raw.addressable_sectors;
 
-  kprintf("general_config: %x\n", ata_identify_data.general_config);
-  kprintf("serial: %s\n", ata_identify_data.serial);
-  kprintf("firmware_rev: %s\n", ata_identify_data.firmware_rev);
-  kprintf("model_no: %s\n", ata_identify_data.model_no);
-  kprintf("sectors: %x\n", ata_identify_data.addressable_sectors);
+  printf("general_config: %x\n", ata_identify_data.general_config);
+  printf("serial: %s\n", ata_identify_data.serial);
+  printf("firmware_rev: %s\n", ata_identify_data.firmware_rev);
+  printf("model_no: %s\n", ata_identify_data.model_no);
+  printf("sectors: %x\n", ata_identify_data.addressable_sectors);
 
   return;
 }

@@ -3,7 +3,7 @@
 
 #define VGA_WIDTH 80
 #define VGA_HEIGHT 25
-#define DEFAULT_COLOR (COLOR_RED | (COLOR_BLACK << 4))
+#define DEFAULT_COLOR (VGA_COLOR_RED | (VGA_COLOR_BLACK << 4))
 
 uint16_t *video_mem = (uint16_t *)0xb8000;
 uint16_t cursor = 0;
@@ -16,12 +16,20 @@ static void update_hardware_cursor() {
   outb(0x3D5, cursor & 0xFF);
 }
 
-void clear_screen() {
-  for (int i = 0; i < VGA_HEIGHT * VGA_WIDTH; i++)
-    put_char(' ');
+static void vga_put_string(const char *msg) {
+  int i = 0;
+  char c;
+  while ((c = msg[i++])) {
+    vga_put_char(c);
+  }
 }
 
-void scroll() {
+void vga_clear_screen() {
+  for (int i = 0; i < VGA_HEIGHT * VGA_WIDTH; i++)
+    vga_put_char(' ');
+}
+
+void vga_scroll() {
   for (int i = 0; i < VGA_HEIGHT - 1; i++) {
     for (int j = 0; j < VGA_WIDTH; j++) {
       video_mem[i * VGA_WIDTH + j] = video_mem[(i + 1) * VGA_WIDTH + j];
@@ -35,46 +43,42 @@ void scroll() {
   cursor -= VGA_WIDTH;
 }
 
-void reset_color() { color = DEFAULT_COLOR; }
-void set_color(uint8_t fg, uint8_t bg) { color = fg | (bg << 4); }
-void reset_cursor() {
+void vga_reset_cursor() {
   cursor = 0;
   update_hardware_cursor();
 }
-void set_cursor(uint16_t row, uint16_t col) {
+void vga_set_cursor(uint16_t row, uint16_t col) {
   cursor = row * VGA_WIDTH + col;
   update_hardware_cursor();
 }
 
-void cursor_advance() {
+void vga_cursor_advance() {
   if (cursor >= VGA_WIDTH * VGA_HEIGHT)
     return;
   cursor++;
   update_hardware_cursor();
 }
-void cursor_back() {
+void vga_cursor_back() {
   if (cursor <= 0)
     return;
   cursor--;
   update_hardware_cursor();
 }
 
-void put_char(char c) {
+void vga_put_char(char c) {
   if (c == '\n') {
     cursor += 80 - (cursor % 80);
     update_hardware_cursor();
     return;
   }
   if (cursor / VGA_WIDTH == VGA_HEIGHT) {
-    scroll();
+    vga_scroll();
   }
   video_mem[cursor++] = c | (color << 8);
   update_hardware_cursor();
 }
 
-void put_nl() { put_char('\n'); }
-
-void put_number(int32_t num) {
+void vga_put_number(int32_t num) {
   // INT32_MAX IS 2147483647
   // so max size is len(2147483647) + 1 (sign) + 1(\0)
   // ==12
@@ -82,7 +86,7 @@ void put_number(int32_t num) {
 
   if (num == 0) {
     buf[0] = '0';
-    put_string(buf);
+    vga_put_string(buf);
     return;
   }
 
@@ -107,7 +111,7 @@ void put_number(int32_t num) {
     buf[idx - i - 1] = aux;
   }
 
-  put_string(buf);
+  vga_put_string(buf);
 }
 
 char hex_chars[16] = {
@@ -115,7 +119,7 @@ char hex_chars[16] = {
     '8', '9', 'A', 'B', 'C', 'D', 'E', 'F',
 };
 
-void put_hex(uint64_t num) {
+void vga_put_hex(uint64_t num) {
   // UINT64_MAX IS 0xffffffffffffffff
   // so max size 18+\0
   char buf[19] = {0};
@@ -124,7 +128,7 @@ void put_hex(uint64_t num) {
     buf[idx++] = '0';
     buf[idx++] = 'x';
     buf[idx++] = '0';
-    put_string(buf);
+    vga_put_string(buf);
     return;
   }
   while (num != 0) {
@@ -139,10 +143,10 @@ void put_hex(uint64_t num) {
     buf[i] = buf[idx - i - 1];
     buf[idx - i - 1] = aux;
   }
-  put_string(buf);
+  vga_put_string(buf);
 }
 
-void put_hex_full(uint32_t num) {
+void vga_put_hex_full(uint32_t num) {
   // UINT32_MAX IS 0xffffffff
   // so max size 10+\0
   char buf[11] = {0};
@@ -161,19 +165,11 @@ void put_hex_full(uint32_t num) {
     buf[i] = buf[idx - i - 1];
     buf[idx - i - 1] = aux;
   }
-  put_string(buf);
+  vga_put_string(buf);
 }
 
-void put_string(const char *msg) {
-  int i = 0;
-  char c;
-  while ((c = msg[i++])) {
-    put_char(c);
-  }
-}
-
-void put_sv(SV sv) {
+void vga_put_sv(SV sv) {
   for (size_t i = 0; i < sv.len; i++) {
-    put_char(sv.str[i]);
+    vga_put_char(sv.str[i]);
   }
 }

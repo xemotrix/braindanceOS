@@ -1,8 +1,8 @@
 #ifndef PANIC_H
 #define PANIC_H
 
-#include "../kernel/irq.h"
-#include "../utils/stdio.h"
+#include "irq.h"
+#include <stdio.h>
 
 #define STRINGIFY_IMPL(x) #x
 #define STRINGIFY(x) STRINGIFY_IMPL(x)
@@ -12,8 +12,8 @@
 #define PANIC(fmt, ...)                                                        \
   do {                                                                         \
     CLI;                                                                       \
-    kprintf("panic at " FILE_LOC ": ");                                        \
-    kprintf(fmt __VA_OPT__(, ) __VA_ARGS__);                                   \
+    printf("panic at " FILE_LOC ": ");                                         \
+    printf(fmt __VA_OPT__(, ) __VA_ARGS__);                                    \
     for (;;) {                                                                 \
       HLT;                                                                     \
     }                                                                          \
