@@ -54,8 +54,8 @@ libk.a: $(LIBK_OBJ)
 	nasm $< -f bin -o $@
 
 clean:
-	@rm -rf *.bin *.o *.elf *.dis os-image
-	@rm -rf */*.o
+	@rm -rf *.elf *.dis os-image
+	@rm -rf */*.o */*.bin
 
 kernel.dis: kernel.bin
 	ndisasm -b 32 $< > $@
