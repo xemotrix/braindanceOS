@@ -262,11 +262,6 @@ static void fill_fat_table() {
   ata_read_disk(fat_first_sector, fat_n_sectors, fat_table);
 }
 
-int fat32_create_empty_file(fat32_dentry_t *parent, const char *filename) {
-
-  return 1;
-}
-
 // fat32_write can assume:
 // - count > 0, that is handled by vfs
 int fat32_write(fat32_dentry_t *dirent, size_t *cursor, const void *in,

@@ -29,4 +29,6 @@ SV svlitlen(char *str, size_t len);
 SV svbuilder_view(struct SV_builder *b);
 SV svsubstring(SV a, size_t start, size_t len);
 
+char *svcstring(SV sv);
+
 #endif

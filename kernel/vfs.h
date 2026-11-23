@@ -4,11 +4,15 @@
 #include <stddef.h>
 #include <stdint.h>
 
-typedef enum {
-  SEEK_SET,
-  SEEK_CUR,
-  SEEK_END,
-} seek_whence;
+#define SEEK_SET 1 // offset set to offset bytes.
+#define SEEK_CUR 2 // offset set to its current location plus offset bytes.
+#define SEEK_END 3 // offset set to the size of the file plus offset bytes.
+
+#define OPEN_READ 0x1   // can read the file
+#define OPEN_WRITE 0x2  // can write to the file
+#define OPEN_RDWR 0x3   // both
+#define OPEN_CREATE 0x4 // create it if it doesn't exist
+#define OPEN_APPEND 0x8 // on every write, write at the end
 
 // info to fill by file system drivers
 typedef struct {
@@ -49,7 +53,7 @@ size_t vfs_file_cursor(size_t fd);
 int vfs_open(const char *path);
 int vfs_close(size_t fd);
 int vfs_read(size_t fd, void *buf, size_t count);
-int vfs_seek(size_t fd, size_t offset, seek_whence whence);
+int vfs_seek(size_t fd, size_t offset, uint8_t whence);
 int vfs_write(size_t fd, const void *buf, size_t count);
 vfs_dentry *vfs_readdir(size_t fd);
 

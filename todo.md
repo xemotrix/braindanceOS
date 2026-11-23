@@ -9,6 +9,7 @@
 ## ONGOING
 * Basic shell (tty)
 * Filesystem
+    - create empty files (and rest of open flags)
 
 ## BOY SCOUT
 * keyboard driver

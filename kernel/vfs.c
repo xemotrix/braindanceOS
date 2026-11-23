@@ -106,9 +106,10 @@ int vfs_open(const char *path) {
     SV ps = parse_path_segment(&path);
     if (!ps.len)
       break;
-    node = lookup(node, ps);
-    if (!node)
-      PANIC("node not found");
+    vfs_node *next = lookup(node, ps);
+    if (!next)
+      return -1; // not found
+    node = next;
   }
   int fd = create_file_descriptor_for_node(node);
   return fd;
@@ -120,7 +121,7 @@ int vfs_close(size_t fd) {
   return 1;
 }
 
-int vfs_seek(size_t fd, size_t offset, seek_whence whence) {
+int vfs_seek(size_t fd, size_t offset, uint8_t whence) {
   struct vfs_file *file = &fds[fd];
   size_t target;
   switch (whence) {

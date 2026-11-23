@@ -41,6 +41,7 @@ SV svsubstring(SV a, size_t start, size_t len) {
       .len = len,
   };
 }
+
 SV svcat(SV a, SV b) {
   size_t tot_len = a.len + b.len;
   char *bfr = kmalloc(tot_len);
@@ -64,6 +65,13 @@ SV svbuilder_view(struct SV_builder *b) {
       .len = b->char_array.len + 1,
       .str = b->char_array.elts,
   };
+}
+
+char *svcstring(SV sv) {
+  char *buf = kmalloc(sv.len + 1);
+  memncpy(sv.str, buf, sv.len);
+  buf[sv.len] = 0;
+  return buf;
 }
 
 SV svbuild(struct SV_builder b) {
