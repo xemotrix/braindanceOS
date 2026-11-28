@@ -1,4 +1,3 @@
-#include "fat32.h"
 #include "idt.h"
 #include "irq.h"
 #include "pic.h"
@@ -8,6 +7,7 @@
 #include "tty.h"
 #include "vmm.h"
 #include <drivers/ata.h>
+#include <drivers/fat32.h>
 
 void startup() {
   ata_init();

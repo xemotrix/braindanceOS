@@ -1,7 +1,7 @@
 #include "fat32.h"
-#include "heap.h"
-#include "panic.h"
 #include <drivers/ata.h>
+#include <kernel/heap.h>
+#include <kernel/panic.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
@@ -14,15 +14,20 @@
 #define FAT32_ATTR_VOLUME_ID 0x8
 #define FAT32_ATTR_DIRECTORY 0x10
 #define FAT32_ATTR_ARCHIVE 0x20
+#define FAT32_ATTR_LFN 0x0f
 
 #define DELETED_MARKER 0xE5
 #define END_MARKER 0x0
+
+#define FAT32_LFN_MAX_ENTRY_NAME_LEN 13
 
 #define FAT32_ADDR_MASK 0x0FFFFFFF
 #define FAT32_EOF 0x0FFFFFF8
 #define FAT32_BAD_CLUSTER 0x0FFFFFF7
 
 #define DIV_ROUND_UP(a, b) (((a) + (b) - 1) / (b))
+
+#define CACHE_MAX_CLUSTERS 64
 
 struct fat32_bios_parameter_block {
   uint32_t : 3 * 8; // JUMP
@@ -132,6 +137,10 @@ static fat32_dentry_t root_dentry;
 static uint32_t total_sectors;
 static size_t n_fats;
 
+static uint8_t *cluster_cache;      // cache contents
+static size_t *cluster_cache_index; // first sectors per index
+static size_t cluster_cache_cursor; // first sectors per index
+
 #define FIRST_SECTOR_IN_CLUSTER(c)                                             \
   (first_data_sector + sectors_per_cluster * ((c) - 2))
 
@@ -139,6 +148,33 @@ static size_t n_fats;
   ((((s) - first_data_sector) / sectors_per_cluster) + 2)
 
 //===========================
+
+static void read_cluster(uint32_t first_sector, void *out) {
+  for (size_t i = 0; i < CACHE_MAX_CLUSTERS; i++) {
+    if (cluster_cache_index[i] != first_sector)
+      continue;
+    memncpy(cluster_cache + i * cluster_size, out, cluster_size);
+    return;
+  }
+  ata_read_disk(first_sector, sectors_per_cluster, out);
+
+  cluster_cache_index[cluster_cache_cursor] = first_sector;
+  memncpy(out, cluster_cache + cluster_cache_cursor * cluster_size,
+          cluster_size);
+  cluster_cache_cursor = (cluster_cache_cursor + 1) % CACHE_MAX_CLUSTERS;
+  return;
+}
+
+static void write_cluster(uint32_t first_sector, void *in) {
+  for (size_t i = 0; i < CACHE_MAX_CLUSTERS; i++) {
+    if (cluster_cache_index[i] != first_sector)
+      continue;
+    memncpy(in, cluster_cache + i * cluster_size, cluster_size);
+    break;
+  }
+  ata_write_disk(first_sector, sectors_per_cluster, in);
+  return;
+}
 
 static inline uint32_t fat_get_next_cluster(uint32_t cluster_no) {
   uint32_t table_value = fat_table[cluster_no] & FAT32_ADDR_MASK;
@@ -153,7 +189,7 @@ static inline uint32_t fat_get_next_cluster(uint32_t cluster_no) {
 
 static int parse_dir_entry(union fat32_dir_entry de, uint32_t dirent_sector,
                            uint32_t dirent_idx, fat32_dentry_t *out) {
-  if (de.std.attributes != 0xf) { // STD
+  if (de.std.attributes != FAT32_ATTR_LFN) { // STD
     if (!*out->file_name) {
       memncpy(de.std.fname, out->file_name, sizeof(de.std.fname));
     }
@@ -174,15 +210,18 @@ static int parse_dir_entry(union fat32_dir_entry de, uint32_t dirent_sector,
     size_t filename_idx = 0;
     for (int j = 0; j < 10 / 2; j++) {
       char c = (char)(((uint16_t *)de.lfn.text1)[j] & 0xffff);
-      out->file_name[(order * 13) + filename_idx++] = c;
+      out->file_name[(order * FAT32_LFN_MAX_ENTRY_NAME_LEN) + filename_idx++] =
+          c;
     }
     for (int j = 0; j < 12 / 2; j++) {
       char c = (char)(((uint16_t *)de.lfn.text2)[j] & 0xffff);
-      out->file_name[(order * 13) + filename_idx++] = c;
+      out->file_name[(order * FAT32_LFN_MAX_ENTRY_NAME_LEN) + filename_idx++] =
+          c;
     }
     for (int j = 0; j < 4 / 2; j++) {
       char c = (char)(((uint16_t *)de.lfn.text3)[j] & 0xffff);
-      out->file_name[(order * 13) + filename_idx++] = c;
+      out->file_name[(order * FAT32_LFN_MAX_ENTRY_NAME_LEN) + filename_idx++] =
+          c;
     }
     return 1;
   }
@@ -225,7 +264,7 @@ static void fat32_append_empty_clusters(fat32_dentry_t *dirent, size_t count) {
   for (size_t i = 0; i < count; i++) {
     next_cluster_no = fat32_find_empty_cluster();
     uint64_t lba = FIRST_SECTOR_IN_CLUSTER(next_cluster_no);
-    ata_write_disk(lba, sectors_per_cluster, buf_zeros);
+    write_cluster(lba, buf_zeros);
     fat_table[next_cluster_no] = FAT32_EOF;
     fat32_patch_fat(next_cluster_no);
 
@@ -243,7 +282,7 @@ static void fat32_append_empty_clusters(fat32_dentry_t *dirent, size_t count) {
 
 static void fat32_patch_dirent(fat32_dentry_t *dirent) {
   union fat32_dir_entry *entries = kmalloc(cluster_size);
-  ata_read_disk(dirent->dirent_sector, sectors_per_cluster, entries);
+  read_cluster(dirent->dirent_sector, entries);
   struct fat32_STD_dir_entry *dent = &entries[dirent->dirent_idx].std;
   dent->file_size = dirent->size;
   // for files that start empty:
@@ -252,7 +291,7 @@ static void fat32_patch_dirent(fat32_dentry_t *dirent) {
   // todo, when we have RTC
   // dent->last_modification_time
   // dent->last_modification_date
-  ata_write_disk(dirent->dirent_sector, sectors_per_cluster, entries);
+  write_cluster(dirent->dirent_sector, entries);
   kfree(entries);
 }
 
@@ -281,9 +320,9 @@ int fat32_write(fat32_dentry_t *dirent, size_t *cursor, const void *in,
 
     uint8_t *buf = kmalloc(cluster_size);
     size_t lba = FIRST_SECTOR_IN_CLUSTER(old_last_cluster);
-    ata_read_disk(lba, sectors_per_cluster, buf);
+    read_cluster(lba, buf);
     memset(buf + hole_start, 0, hole_end - hole_start);
-    ata_write_disk(lba, sectors_per_cluster, buf);
+    write_cluster(lba, buf);
     kfree(buf);
   }
 
@@ -304,7 +343,7 @@ int fat32_write(fat32_dentry_t *dirent, size_t *cursor, const void *in,
 
   for (;;) {
     size_t sector_no = FIRST_SECTOR_IN_CLUSTER(cluster_no);
-    ata_read_disk(sector_no, sectors_per_cluster, buf);
+    read_cluster(sector_no, buf);
 
     size_t offset_in_cluster = *cursor % cluster_size;
     size_t left_in_cluster = cluster_size - offset_in_cluster;
@@ -315,7 +354,7 @@ int fat32_write(fat32_dentry_t *dirent, size_t *cursor, const void *in,
     void *dst = (uint8_t *)buf + offset_in_cluster;
     memcpy(dst, src, copy_size);
 
-    ata_write_disk(sector_no, sectors_per_cluster, buf);
+    write_cluster(sector_no, buf);
 
     bytes_written += copy_size;
     *cursor += copy_size;
@@ -350,8 +389,7 @@ int fat32_read(fat32_dentry_t *dirent, size_t *cursor, void *out,
 
   uint8_t *buf = kmalloc(cluster_size);
   for (;;) {
-    ata_read_disk(FIRST_SECTOR_IN_CLUSTER(cluster_no), sectors_per_cluster,
-                  buf);
+    read_cluster(FIRST_SECTOR_IN_CLUSTER(cluster_no), buf);
 
     size_t offset_in_cluster = *cursor % cluster_size;
     size_t left_in_cluster = cluster_size - offset_in_cluster;
@@ -374,6 +412,143 @@ int fat32_read(fat32_dentry_t *dirent, size_t *cursor, void *out,
   return bytes_read;
 }
 
+static union fat32_dir_entry *
+fat32_build_dir_entries_for_name(const char *name) {
+  size_t name_len = strlen(name);
+  size_t n_lfn_entries = DIV_ROUND_UP(name_len, FAT32_LFN_MAX_ENTRY_NAME_LEN);
+  size_t total_size = (n_lfn_entries + 1) * sizeof(union fat32_dir_entry);
+  union fat32_dir_entry *to_write_entries = kmalloc(total_size);
+
+  // fill lfn entries
+  size_t name_cursor = 0;
+  for (size_t i = 0; i < n_lfn_entries; i++) {
+    to_write_entries[i] = (union fat32_dir_entry){
+        .lfn =
+            {
+                .order = i == n_lfn_entries - 1 ? (i + 1) | 0x40 : i + 1,
+                .attributes = FAT32_ATTR_LFN,
+                .long_entry_type = 0, //?
+                .checksum = 42,       //?
+                .zero = 0,
+            },
+    };
+    strncpy(to_write_entries[i].lfn.text1, name + name_cursor, 10);
+    name_cursor += 10;
+    strncpy(to_write_entries[i].lfn.text2, name + name_cursor, 12);
+    name_cursor += 12;
+    strncpy(to_write_entries[i].lfn.text3, name + name_cursor, 4);
+    name_cursor += 4;
+  }
+
+  // fill std entry
+  to_write_entries[n_lfn_entries] = (union fat32_dir_entry){
+      .std =
+          {
+              .attributes = 0,
+              .creation_duration = 0,
+              .creation_time = 0,
+              .creation_date = 0,
+              .last_accessed_date = 0,
+              .first_cluster_no_high = 0,
+              .last_modification_time = 0,
+              .last_modification_date = 0,
+              .first_cluster_no_low = 0,
+              .file_size = 0,
+          },
+  };
+
+  // for compatibility with fat<32, don't really care
+  strncpy(to_write_entries[n_lfn_entries].std.fname, name, 11);
+  return to_write_entries;
+}
+
+int fat32_create_empty_file(fat32_dentry_t *parent, const char *name) {
+  size_t name_len = strlen(name);
+  size_t n_lfn_entries = DIV_ROUND_UP(name_len, FAT32_LFN_MAX_ENTRY_NAME_LEN);
+  size_t cluster_no = parent->first_cluster;
+  size_t sector = FIRST_SECTOR_IN_CLUSTER(cluster_no);
+  size_t entries_per_cluster = cluster_size / sizeof(union fat32_dir_entry);
+
+  union fat32_dir_entry *fat32_dentries = kmalloc(cluster_size);
+
+  // search enough contiguous available entries
+  size_t contiguous_available_entries = 0;
+  size_t write_start_cluster = 0;
+  size_t write_start_eidx = 0;
+  for (;;) {
+    read_cluster(sector, fat32_dentries);
+
+    for (size_t i = 0; i < entries_per_cluster; i++) {
+      union fat32_dir_entry de = fat32_dentries[i];
+
+      switch ((uint8_t)de.std.fname[0]) {
+      case DELETED_MARKER:
+        contiguous_available_entries++;
+        if (contiguous_available_entries == 1) {
+          write_start_cluster = cluster_no;
+          write_start_eidx = i % entries_per_cluster;
+        }
+        break;
+      case END_MARKER:
+        if (contiguous_available_entries == 0) {
+          write_start_cluster = cluster_no;
+          write_start_eidx = i % entries_per_cluster;
+        }
+        goto fat32_create_empty_file_search_done;
+      default:
+        contiguous_available_entries = 0;
+      }
+
+      if (contiguous_available_entries >= n_lfn_entries + 1) {
+        goto fat32_create_empty_file_search_done;
+      }
+    }
+    size_t next_cluster = fat_get_next_cluster(cluster_no);
+    if (!next_cluster) {
+      fat32_append_empty_clusters(parent, 1);
+      cluster_no = fat_get_next_cluster(cluster_no);
+    } else {
+      cluster_no = next_cluster;
+    }
+    sector = FIRST_SECTOR_IN_CLUSTER(cluster_no);
+  }
+
+fat32_create_empty_file_search_done:
+  if (write_start_cluster != cluster_no) {
+    sector = FIRST_SECTOR_IN_CLUSTER(write_start_cluster);
+    read_cluster(sector, fat32_dentries);
+    cluster_no = write_start_cluster;
+  }
+
+  union fat32_dir_entry *to_write_entries =
+      fat32_build_dir_entries_for_name(name);
+
+  size_t idx;
+  for (size_t i = 0; i < n_lfn_entries + 1; i++) {
+    // if crossing cluster boundaries
+    if (i > 0 && (write_start_eidx + i) % entries_per_cluster == 0) {
+      write_cluster(sector, fat32_dentries);
+      size_t next_cluster = fat_get_next_cluster(cluster_no);
+      if (!next_cluster) {
+        fat32_append_empty_clusters(parent, 1);
+        cluster_no = fat_get_next_cluster(cluster_no);
+      } else {
+        cluster_no = next_cluster;
+      }
+      sector = FIRST_SECTOR_IN_CLUSTER(cluster_no);
+      read_cluster(sector, fat32_dentries);
+    }
+    idx = (write_start_eidx + i) % entries_per_cluster;
+    fat32_dentries[idx] = to_write_entries[i];
+  }
+  write_cluster(sector, fat32_dentries);
+
+  kfree(fat32_dentries);
+  kfree(to_write_entries);
+
+  return 1;
+}
+
 int fat32_readdir(fat32_dentry_t *dirent, size_t *cursor, vfs_dentry *out) {
   // find relevant cluster
   size_t cluster_no = dirent->first_cluster;
@@ -387,7 +562,7 @@ int fat32_readdir(fat32_dentry_t *dirent, size_t *cursor, vfs_dentry *out) {
 
   // read cluster
   union fat32_dir_entry *fat32_dentries = kmalloc(cluster_size);
-  ata_read_disk(sector, sectors_per_cluster, fat32_dentries);
+  read_cluster(sector, fat32_dentries);
 
   // iterate entries to build dir entry
   fat32_dentry_t fat32_de = {0};
@@ -415,7 +590,7 @@ int fat32_readdir(fat32_dentry_t *dirent, size_t *cursor, vfs_dentry *out) {
         return 0; // no more directory entries
       }
       sector = FIRST_SECTOR_IN_CLUSTER(cluster_no);
-      ata_read_disk(sector, sectors_per_cluster, fat32_dentries);
+      read_cluster(sector, fat32_dentries);
     }
   }
 
@@ -451,6 +626,9 @@ vfs_init_data fat32_init() {
   n_fats = br.bpb.n_fats;
 
   fill_fat_table();
+  cluster_cache = kmalloc(cluster_size * CACHE_MAX_CLUSTERS);
+  cluster_cache_index = kmalloc(CACHE_MAX_CLUSTERS * sizeof(size_t));
+  memset(cluster_cache_index, 0, CACHE_MAX_CLUSTERS * sizeof(size_t));
 
   root_dentry = (fat32_dentry_t){
       .file_name = "/",

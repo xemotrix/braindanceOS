@@ -1,15 +1,16 @@
 ## TODO
 ### Phase 1
-* Graphics (not VGA text)
+* Serial debug
 * Stack traces
 ### Phase 2
-* Serial debug
 * Userspace
+* Graphics (not VGA text)
 
 ## ONGOING
 * Basic shell (tty)
 * Filesystem
     - create empty files (and rest of open flags)
+    - delete (unlink) files
 
 ## BOY SCOUT
 * keyboard driver

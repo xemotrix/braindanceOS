@@ -34,6 +34,28 @@ static void run_cmd_ls(SV_array cmd) {
     PANIC("error closing");
 }
 
+static void run_cmd_write(SV_array cmd) {
+  if (cmd.len < 3) {
+    printf("invalid write command");
+    return;
+  }
+
+  char *path = svcstring(cmd.elts[1]);
+  size_t fd = vfs_open(path);
+  if (fd < 0) {
+    printf("couldn't open file %s\n", path);
+    return;
+  }
+  kfree(path);
+
+  char *to_write = svcstring(cmd.elts[2]);
+  vfs_write(fd, to_write, cmd.elts[2].len);
+  kfree(to_write);
+
+  if (!vfs_close(fd))
+    PANIC("error closing");
+}
+
 static void run_cmd_cat(SV_array cmd) {
   char buf[512] = {0};
   size_t fd;
@@ -110,6 +132,8 @@ void parse_cmd(SV cmd) {
     run_cmd_ls(words);
   } else if (sveq(cmd_name, "cat")) {
     run_cmd_cat(words);
+  } else if (sveq(cmd_name, "write")) {
+    run_cmd_write(words);
   } else {
     printf("unrecognized command\n");
   }

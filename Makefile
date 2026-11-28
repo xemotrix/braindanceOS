@@ -5,7 +5,7 @@ ASM_BOOT =$(wildcard boot/*.asm)
 ASM_STUB = $(wildcard kernel/*.asm)
 OBJ = ${ASM_STUB:.asm=.o} ${C_SOURCES:.c=.o}
 
-CFLAGS = -g -O0 -ffreestanding -std=c23 -isystem libc/include -I.
+CFLAGS = -g -O0 -ffreestanding -std=c23 -isystem libc/include -I. -Wall -Wextra -Wshadow
 
 LIBK_SRC = $(wildcard libc/*/*.c)
 LIBK_OBJ = $(LIBK_SRC:.c=.libk.o)
